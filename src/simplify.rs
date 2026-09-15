@@ -19,7 +19,39 @@ pub fn simplify(s: &Sym) -> Sym {
             tried.clear();
         }
     }
-    cur
+    pythagorean(&cur)
+}
+
+/// Rewrite sin(u)^2 as 1 - cos(u)^2 when cos(u) also appears and doing so
+/// makes the expression shorter (e.g. sin(x)^2 + cos(x)^2 = 1).
+fn pythagorean(s: &Sym) -> Sym {
+    use crate::sym::Atom;
+    for (m, c) in &s.terms {
+        for (a, e) in m {
+            let Atom::Func(name, args) = a else { continue };
+            if name != "sin" || !e.is_integer() || *e < crate::sym::q(2) {
+                continue;
+            }
+            let cos_atom = Atom::Func("cos".into(), args.clone());
+            if !s.terms.keys().any(|m2| m2.contains_key(&cos_atom)) {
+                continue;
+            }
+            let mut rest = m.clone();
+            let e2 = e - crate::sym::q(2);
+            if e2 == crate::sym::q(0) {
+                rest.remove(a);
+            } else {
+                rest.insert(a.clone(), e2);
+            }
+            let Ok(cos2) = Sym::atom(cos_atom).powi(2) else { continue };
+            let replaced = crate::poly::raw_term(rest, c.clone()).mul(&Sym::int(1).sub(&cos2));
+            let cand = s.sub(&crate::poly::raw_term(m.clone(), c.clone())).add(&replaced);
+            if cand.terms.len() < s.terms.len() {
+                return pythagorean(&cand);
+            }
+        }
+    }
+    s.clone()
 }
 
 /// A grouped denominator `(d)^(-k)` not tried yet.

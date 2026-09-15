@@ -102,6 +102,9 @@ pub(crate) fn call(name: &str, args: &[Value]) -> Result<Value, EvalError> {
         }
         "sin" | "cos" | "tan" | "asin" | "acos" | "atan" | "sinh" | "cosh" | "tanh" | "exp" => {
             arity(name, args, &[1])?;
+            if name == "tan" && args[0].as_real_f64().is_some_and(|x| x.cos().abs() < 1e-12 * (1.0 + x.abs())) {
+                return Err(EvalError::Domain("tan is undefined at odd multiples of pi/2".into()));
+            }
             Ok(transcendental(name, &args[0]))
         }
         "ln" => {

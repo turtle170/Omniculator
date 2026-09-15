@@ -228,6 +228,17 @@ impl Sym {
         if self.is_one() {
             return Ok(Sym::int(1));
         }
+        // Euler: e^(i·k·pi) = cos(k·pi) + i·sin(k·pi), exact at nice angles.
+        if *self == Sym::atom(Atom::Const(Konst::E)) {
+            if let Some((m, k)) = exp.single() {
+                if m.len() == 2 && m.get(&Atom::I) == Some(&Q::one()) && m.get(&Atom::Const(Konst::Pi)) == Some(&Q::one()) {
+                    let angle = Sym::atom(Atom::Const(Konst::Pi)).scale(&k);
+                    if let (Some(Ok(c)), Some(Ok(s))) = (trig_special("cos", &angle), trig_special("sin", &angle)) {
+                        return Ok(c.add(&s.mul(&Sym::atom(Atom::I))));
+                    }
+                }
+            }
+        }
         Ok(Sym::atom(Atom::Pow(Box::new(self.clone()), Box::new(exp.clone()))))
     }
 
@@ -560,6 +571,14 @@ pub fn func(name: &str, args: Vec<Sym>) -> Result<Sym, EvalError> {
             return args[0].pow_q(&n.recip());
         }
         "exp" => return Sym::atom(Atom::Const(Konst::E)).pow(&args[0]),
+        // abs of a constant with a known real sign, e.g. abs(e) = e.
+        "abs" if args[0].vars().is_empty() => {
+            if let Some(x) = args[0].eval(&HashMap::new()).ok().and_then(|v| v.as_real_f64()) {
+                if x != 0.0 {
+                    return Ok(if x > 0.0 { args[0].clone() } else { args[0].neg() });
+                }
+            }
+        }
         "ln" => {
             if let Some(r) = ln_simplify(&args[0]) {
                 return Ok(r);

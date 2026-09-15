@@ -47,6 +47,15 @@ fn non_polynomial_systems() {
 }
 
 #[test]
+fn stress_regressions() {
+    assert!(answer("tan(pi/2)").starts_with("error"));
+    assert_eq!(answer("e^(i*pi)"), "-1");
+    assert_eq!(answer("simplify(sin(x)^2 + cos(x)^2)"), "1");
+    assert_eq!(answer("integrate(1/x, x, 1, e)"), "∫ from 1 to e of 1/x dx = 1");
+    assert_eq!(answer("sqrt(x) = 3"), "x = 9");
+}
+
+#[test]
 fn quadratics_and_polynomials() {
     assert_eq!(answer("x^2 - 5x + 6 = 0"), "x = 2\nx = 3");
     assert!(answer("x^2 = 2").contains("x = sqrt(2)"));

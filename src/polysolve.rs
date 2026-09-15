@@ -719,6 +719,17 @@ fn non_polynomial(polys: &[Sym], vars: &[String], mut steps: Vec<Step>) -> Outco
     } else {
         sols.iter()
             .map(|s| {
+                // Report a solution exactly when rounding to fractions checks out exactly.
+                let exact: Option<Vec<Q>> = s.iter().map(|&v| rational_approx(v, 1000)).collect();
+                if let Some(qs) = exact {
+                    let env: HashMap<String, Value> =
+                        vars.iter().cloned().zip(qs.iter().map(|v| Value::Rational(v.clone()))).collect();
+                    if polys.iter().all(|p| p.eval(&env).is_ok_and(|v| v.is_zero())) {
+                        let body: Vec<String> =
+                            vars.iter().zip(&qs).map(|(n, v)| format!("{n} = {}", with_approx(&Sym::constant(v.clone())))).collect();
+                        return body.join(", ");
+                    }
+                }
                 let body: Vec<String> =
                     vars.iter().zip(s).map(|(n, &v)| format!("{n} ≈ {}", fmt_c64(Complex64::new(v, 0.0)))).collect();
                 body.join(", ")
