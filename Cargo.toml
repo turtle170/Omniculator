@@ -2,6 +2,7 @@
 name = "omniculator"
 version = "0.5.3"
 edition = "2024"
+license = "MIT"
 
 [dependencies]
 num-bigint = "0.4"
