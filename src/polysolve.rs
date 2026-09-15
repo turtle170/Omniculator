@@ -78,9 +78,12 @@ fn is_real(z: Complex64) -> bool {
 
 pub fn solve_equations(equations: Vec<Equation>) -> Result<Outcome, Error> {
     let mut polys = Vec::new();
+    let mut raw = Vec::new();
     let mut denominators = Vec::new();
     for eq in &equations {
-        let p = simplify(&from_expr(&eq.lhs)?.sub(&from_expr(&eq.rhs)?));
+        let r = from_expr(&eq.lhs)?.sub(&from_expr(&eq.rhs)?);
+        let p = simplify(&r);
+        raw.push(r);
         polys.push(clear_denominators(p, &mut denominators)?);
     }
     let all: Vec<String> = polys.iter().flat_map(Sym::vars).collect::<BTreeSet<_>>().into_iter().collect();
@@ -92,10 +95,17 @@ pub fn solve_equations(equations: Vec<Equation>) -> Result<Outcome, Error> {
             Err(e) => return Err(e.into()),
         }
     }
-    let mut steps = vec![Step {
-        description: "Move everything to one side".into(),
-        snapshot: polys.iter().map(|p| format!("{p} = 0")).collect(),
-    }];
+    let raw_lines: Vec<String> = raw.iter().map(|p| format!("{p} = 0")).collect();
+    let lines: Vec<String> = polys.iter().map(|p| format!("{p} = 0")).collect();
+    let mut steps = vec![Step { description: "Move everything to one side".into(), snapshot: raw_lines.clone() }];
+    if raw_lines != lines {
+        steps.push(Step {
+            description: "Simplify: combine fractions, cancel common factors and clear denominators \
+                          (any value that makes a denominator zero stays excluded)"
+                .into(),
+            snapshot: lines,
+        });
+    }
     for p in &polys {
         if !is_polynomial(p) || p.terms.keys().any(|m| m.keys().any(|a| !matches!(a, Atom::Var(_)))) {
             if params.is_empty() && polys.len() == unknowns.len() {
@@ -117,7 +127,13 @@ pub fn solve_equations(equations: Vec<Equation>) -> Result<Outcome, Error> {
             if polys.iter().all(Sym::is_zero) {
                 "The equation is always true.".to_string()
             } else {
-                "No solution: the equations reduce to a false statement.".to_string()
+                let hint = if raw.iter().any(|r| !r.vars().is_empty()) {
+                    " The unknowns cancel out, so no value works (a value that makes a denominator \
+                     zero isn't allowed either)."
+                } else {
+                    ""
+                };
+                format!("No solution: the equations reduce to a false statement.{hint}")
             }
         }
         1 if polys.len() == 1 => {
