@@ -28,6 +28,16 @@ fn nonlinear_system() {
 }
 
 #[test]
+fn parameters_and_large_systems() {
+    assert_eq!(answer("x + y = a; x - y = b"), "Solving for x, y in terms of a, b:\n  y = a/2 - b/2\n  x = a/2 + b/2");
+    assert!(answer("x^2 + y^2 = a; x^3 + y^3 = b").contains("degree-6"));
+    let chain = answer("x^2+y=2; y^2+z=3; z^2+w=5; w^2+x=7");
+    assert_eq!(chain.lines().count(), 16, "{chain}");
+    let big = answer("x^4 + y^3z + z^2w^2 = 2; y^4 + z^3w + w^2x^2 = 3; z^4 + w^3x + x^2y^2 = 5; w^4 + x^3y + y^2z^2 = 7");
+    assert!(big.lines().count() >= 12, "{big}");
+}
+
+#[test]
 fn quadratics_and_polynomials() {
     assert_eq!(answer("x^2 - 5x + 6 = 0"), "x = 2\nx = 3");
     assert!(answer("x^2 = 2").contains("x = sqrt(2)"));

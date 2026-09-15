@@ -99,7 +99,7 @@ fn text(input: &str) -> String {
 #[test]
 fn nonlinear_goes_to_polynomial_solver() {
     assert_eq!(text("x^2=4"), "x = -2\nx = 2");
-    assert!(text("x*y=6").starts_with("Infinitely many"));
+    assert!(text("x*y=6").ends_with("x = 6/y"));
     assert!(error("sin(x)=0").contains("isn't a polynomial equation"));
 }
 

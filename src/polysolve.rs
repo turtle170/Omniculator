@@ -12,7 +12,17 @@ use num_complex::Complex64;
 use num_rational::BigRational as Q;
 use num_traits::{One, Signed, Zero};
 
-use crate::commands::with_approx;
+use std::time::{Duration, Instant};
+
+use crate::commands::{best_form, with_approx};
+use crate::homotopy;
+use crate::mpoly::{self, MPoly};
+use crate::sym::{half, q};
+
+/// Exact Gröbner bases get this long before square systems switch to
+/// numerical homotopy continuation.
+const GROEBNER_BUDGET: Duration = Duration::from_millis(400);
+const PARAMETRIC_BUDGET: Duration = Duration::from_secs(5);
 use crate::error::Error;
 use crate::factor::Factorization;
 use crate::format::fmt_c64;
@@ -67,16 +77,20 @@ fn is_real(z: Complex64) -> bool {
 }
 
 pub fn solve_equations(equations: Vec<Equation>) -> Result<Outcome, Error> {
-    match (LinearSystem { equations: equations.clone() }).solve() {
-        Ok((solution, steps)) => return Ok(Outcome::Linear(solution, steps)),
-        Err(SolveError::Unsupported(_)) => {}
-        Err(e) => return Err(e.into()),
-    }
     let mut polys = Vec::new();
     let mut denominators = Vec::new();
     for eq in &equations {
         let p = simplify(&from_expr(&eq.lhs)?.sub(&from_expr(&eq.rhs)?));
         polys.push(clear_denominators(p, &mut denominators)?);
+    }
+    let all: Vec<String> = polys.iter().flat_map(Sym::vars).collect::<BTreeSet<_>>().into_iter().collect();
+    let (unknowns, params) = split_unknowns(&all, equations.len());
+    if params.is_empty() {
+        match (LinearSystem { equations: equations.clone() }).solve() {
+            Ok((solution, steps)) => return Ok(Outcome::Linear(solution, steps)),
+            Err(SolveError::Unsupported(_)) => {}
+            Err(e) => return Err(e.into()),
+        }
     }
     let mut steps = vec![Step {
         description: "Move everything to one side".into(),
@@ -90,7 +104,10 @@ pub fn solve_equations(equations: Vec<Equation>) -> Result<Outcome, Error> {
             .into());
         }
     }
-    let vars: Vec<String> = polys.iter().flat_map(Sym::vars).collect::<BTreeSet<_>>().into_iter().collect();
+    if !params.is_empty() {
+        return parametric(&polys, &unknowns, &params, steps);
+    }
+    let vars = unknowns;
     let answer = match vars.len() {
         0 => {
             if polys.iter().all(Sym::is_zero) {
@@ -107,7 +124,15 @@ pub fn solve_equations(equations: Vec<Equation>) -> Result<Outcome, Error> {
             render_solutions(&roots, &excluded)
         }
         _ => {
-            let basis = groebner(&polys)?;
+            let mp: Vec<MPoly> =
+                polys.iter().map(|p| MPoly::from_sym(p, &vars).expect("checked polynomial")).collect();
+            let basis = match mpoly::groebner(&mp, Instant::now() + GROEBNER_BUDGET) {
+                Ok(b) => b.iter().map(|p| p.to_sym(&vars)).collect::<Vec<Sym>>(),
+                Err(()) if polys.len() == vars.len() => return numeric(&mp, &vars, steps, &denominators),
+                Err(()) => {
+                    return Err(SolveError::Unsupported("this system is too large to solve exactly".into()).into())
+                }
+            };
             steps.push(Step {
                 description: format!(
                     "Compute a Gröbner basis (lex order {}); it's triangular, so the last polynomial has one variable",
@@ -532,4 +557,140 @@ fn render_solutions(sols: &[Solution], excluded: &[Solution]) -> String {
         lines.push(format!("excluded: {body} (makes a denominator zero)"));
     }
     lines.join("\n")
+}
+
+// ---------- parameters, numerics ----------
+
+/// With more letters than equations, solve for the usual unknown names
+/// (x, y, z, w, …) and treat the rest as parameters.
+fn split_unknowns(vars: &[String], n_eq: usize) -> (Vec<String>, Vec<String>) {
+    if vars.len() <= n_eq {
+        return (vars.to_vec(), vec![]);
+    }
+    const PREFERRED: [&str; 8] = ["x", "y", "z", "w", "u", "v", "t", "s"];
+    let mut unknowns: Vec<String> =
+        PREFERRED.iter().filter(|p| vars.iter().any(|v| v == *p)).take(n_eq).map(|s| s.to_string()).collect();
+    for v in vars.iter().rev() {
+        if unknowns.len() >= n_eq {
+            break;
+        }
+        if !unknowns.contains(v) {
+            unknowns.push(v.clone());
+        }
+    }
+    unknowns.sort();
+    let params = vars.iter().filter(|v| !unknowns.contains(v)).cloned().collect();
+    (unknowns, params)
+}
+
+/// Solve for the unknowns in terms of the parameters via a lex Gröbner basis
+/// with unknowns ordered before parameters.
+fn parametric(polys: &[Sym], unknowns: &[String], params: &[String], mut steps: Vec<Step>) -> Result<Outcome, Error> {
+    let order: Vec<String> = unknowns.iter().chain(params).cloned().collect();
+    let mp: Vec<MPoly> = polys.iter().map(|p| MPoly::from_sym(p, &order).expect("checked polynomial")).collect();
+    let basis = mpoly::groebner(&mp, Instant::now() + PARAMETRIC_BUDGET).map_err(|_| {
+        SolveError::Unsupported("this system with parameters is too large to solve symbolically".into())
+    })?;
+    let basis: Vec<Sym> = basis.iter().map(|p| p.to_sym(&order)).collect();
+    steps.push(Step {
+        description: format!(
+            "Treat {} as parameters; compute a Gröbner basis (lex order {})",
+            params.join(", "),
+            order.join(" > ")
+        ),
+        snapshot: basis.iter().map(|p| format!("{p} = 0")).collect(),
+    });
+    if basis.iter().any(|p| p.as_constant().is_some_and(|c| !c.is_zero())) {
+        return Ok(Outcome::Text { steps, answer: "No solution: the equations are inconsistent.".into() });
+    }
+    let mut lines = vec![format!("Solving for {} in terms of {}:", unknowns.join(", "), params.join(", "))];
+    for p in &basis {
+        if unknowns.iter().all(|u| !p.has_var(u)) {
+            lines.push(format!("  requires {p} = 0"));
+        }
+    }
+    for (k, u) in unknowns.iter().enumerate().rev() {
+        let cands: Vec<(&Sym, Vec<Sym>)> = basis
+            .iter()
+            .filter(|p| p.has_var(u) && unknowns[..k].iter().all(|w| !p.has_var(w)))
+            .filter_map(|p| coeffs_in(p, u).map(|c| (p, c)))
+            .collect();
+        let Some((p, c)) = cands.into_iter().min_by_key(|(p, c)| (c.len(), p.terms.len())) else {
+            lines.push(format!("  {u} can be anything"));
+            continue;
+        };
+        match c.len() - 1 {
+            1 => {
+                let r = simplify(&c[0].neg().div(&c[1])?);
+                lines.push(format!("  {u} = {}", best_form(&r)));
+            }
+            2 => {
+                let (a, b, cc) = (&c[2], &c[1], &c[0]);
+                let disc = simplify(&b.powi(2)?.sub(&a.mul(cc).scale(&q(4))));
+                let root = disc.pow_q(&half())?;
+                let two_a = a.scale(&q(2));
+                let r1 = simplify(&b.neg().add(&root).div(&two_a)?);
+                let r2 = simplify(&b.neg().sub(&root).div(&two_a)?);
+                lines.push(format!("  {u} = {r1}"));
+                lines.push(format!("  or {u} = {r2}"));
+            }
+            d => lines.push(format!("  {u} is a root of the degree-{d} equation {p} = 0")),
+        }
+    }
+    Ok(Outcome::Text { steps, answer: lines.join("\n") })
+}
+
+/// Continued-fraction rational approximation with a bounded denominator.
+fn rational_approx(v: f64, max_den: i64) -> Option<Q> {
+    if !v.is_finite() || v.abs() > 1e12 {
+        return None;
+    }
+    let (mut h0, mut h1, mut k0, mut k1) = (0i64, 1i64, 1i64, 0i64);
+    let mut x = v;
+    for _ in 0..40 {
+        let a = x.floor();
+        let ai = a as i64;
+        let (h2, k2) = (ai.checked_mul(h1)?.checked_add(h0)?, ai.checked_mul(k1)?.checked_add(k0)?);
+        if k2 > max_den {
+            break;
+        }
+        (h0, h1, k0, k1) = (h1, h2, k1, k2);
+        if (h1 as f64 / k1 as f64 - v).abs() < 1e-9 * (1.0 + v.abs()) {
+            return Some(Q::new(h1.into(), k1.into()));
+        }
+        let frac = x - a;
+        if frac.abs() < 1e-15 {
+            break;
+        }
+        x = 1.0 / frac;
+    }
+    None
+}
+
+/// Numeric solution; recognized as exact if it's rational and checks out exactly.
+fn to_solution(x: &[Complex64], vars: &[String], mp: &[MPoly]) -> Solution {
+    let rational: Option<Vec<Q>> = x
+        .iter()
+        .map(|z| if z.im.abs() < 1e-8 * (1.0 + z.re.abs()) { rational_approx(z.re, 10_000) } else { None })
+        .collect();
+    if let Some(qs) = rational {
+        if mp.iter().all(|p| p.eval_q(&qs).is_zero()) {
+            return vars.iter().cloned().zip(qs.into_iter().map(|v| Root::exact(Sym::constant(v)))).collect();
+        }
+    }
+    vars.iter().cloned().zip(x.iter().map(|z| Root::numeric(*z))).collect()
+}
+
+fn numeric(mp: &[MPoly], vars: &[String], mut steps: Vec<Step>, dens: &[Sym]) -> Result<Outcome, Error> {
+    let (sols, paths) = homotopy::solve_system(mp, vars.len()).map_err(SolveError::Unsupported)?;
+    steps.push(Step {
+        description: format!(
+            "An exact Gröbner basis is too expensive here; use numerical homotopy continuation \
+             (deform a start system with {paths} known roots into this one, tracking all paths in parallel)"
+        ),
+        snapshot: vec![format!("{} finite solutions found", sols.len())],
+    });
+    let solutions: Vec<Solution> = sols.iter().map(|x| to_solution(x, vars, mp)).collect();
+    let (s, ex) = filter_roots(solutions, dens);
+    Ok(Outcome::Text { steps, answer: render_solutions(&s, &ex) })
 }

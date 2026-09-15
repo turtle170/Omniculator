@@ -14,6 +14,10 @@ pub type UPoly = Vec<Q>;
 /// Kronecker search gives up beyond this many candidate factors.
 const KRONECKER_BUDGET: usize = 200_000;
 const ROOT_CANDIDATE_BUDGET: usize = 50_000;
+/// Total time Kronecker's method may spend on one factorization.
+const KRONECKER_TIME: std::time::Duration = std::time::Duration::from_millis(200);
+
+use std::time::Instant;
 
 pub fn trim(mut p: UPoly) -> UPoly {
     while p.last().is_some_and(Zero::is_zero) {
@@ -198,6 +202,7 @@ pub fn factor(p: &[Q]) -> Factored {
     if p.is_empty() {
         return out;
     }
+    let deadline = Instant::now() + KRONECKER_TIME;
     let mut rest = p.clone();
     // Rational roots → linear factors (b·x − a), with multiplicity.
     match rational_roots(&rest) {
@@ -233,7 +238,7 @@ pub fn factor(p: &[Q]) -> Factored {
         }
         let mut split = None;
         for d in 2..=degree(&prim) / 2 {
-            match kronecker(&prim, d) {
+            match kronecker(&prim, d, deadline) {
                 Ok(Some(g)) => {
                     split = Some(g);
                     break;
@@ -266,7 +271,10 @@ pub fn factor(p: &[Q]) -> Factored {
 
 /// Find a factor of exact degree `d` of primitive `f` by Kronecker's method.
 /// Err(()) if the search is too large.
-fn kronecker(f: &[Q], d: usize) -> Result<Option<UPoly>, ()> {
+fn kronecker(f: &[Q], d: usize, deadline: Instant) -> Result<Option<UPoly>, ()> {
+    if Instant::now() > deadline {
+        return Err(());
+    }
     let mut points: Vec<Q> = Vec::new();
     let mut k: i64 = 0;
     while points.len() <= d {
@@ -305,7 +313,12 @@ fn kronecker(f: &[Q], d: usize) -> Result<Option<UPoly>, ()> {
         })
         .collect();
     let mut idx = vec![0usize; points.len()];
+    let mut tried = 0u32;
     loop {
+        tried += 1;
+        if tried % 256 == 0 && Instant::now() > deadline {
+            return Err(());
+        }
         let mut g = vec![Q::zero(); d + 1];
         for (i, &j) in idx.iter().enumerate() {
             for (k, c) in basis[i].iter().enumerate() {
