@@ -334,7 +334,10 @@ impl Solve for LinearSystem {
     }
 }
 
-pub fn format_solution(solution: &Solution, steps: &[Step]) -> String {
+pub fn format_steps(steps: &[Step]) -> String {
+    if steps.is_empty() {
+        return String::new();
+    }
     let mut out = String::from("Steps:\n");
     for (i, s) in steps.iter().enumerate() {
         out += &format!("  {}. {}\n", i + 1, s.description);
@@ -342,6 +345,11 @@ pub fn format_solution(solution: &Solution, steps: &[Step]) -> String {
             out += &format!("       {line}\n");
         }
     }
+    out
+}
+
+pub fn format_solution(solution: &Solution, steps: &[Step]) -> String {
+    let mut out = format_steps(steps);
     match solution {
         Solution::Unique(values) if values.is_empty() => out += "The equation is always true.",
         Solution::Unique(values) => {

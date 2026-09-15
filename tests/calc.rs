@@ -99,7 +99,7 @@ fn functions() {
 fn errors() {
     assert_eq!(show("1/0"), "error: division by zero");
     assert!(show("sqr(4)").contains("did you mean 'sqrt'"));
-    assert!(show("pii").contains("did you mean 'pi'"));
+    assert!(show("sqrtt(4)").contains("did you mean 'sqrt'"));
     assert!(show("sinx").contains("did you mean 'sin'"));
     assert_eq!(show("x"), "error: unknown name 'x'");
     assert!(show("2 3").contains("missing operator"));

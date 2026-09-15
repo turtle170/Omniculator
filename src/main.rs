@@ -1,13 +1,18 @@
 use std::io::{self, BufRead, Write};
 
 use omniculator::format::format_result;
-use omniculator::linear::format_solution;
+use omniculator::linear::{format_solution, format_steps};
 use omniculator::{run, Error, Outcome};
 
 fn render(input: &str) -> Result<String, Error> {
     Ok(match run(input)? {
         Outcome::Value(v) => format_result(&v),
+        Outcome::Exact(s, v) => {
+            let approx = format_result(&v);
+            format!("{s} ≈ {}", approx.strip_prefix("≈ ").unwrap_or(&approx))
+        }
         Outcome::Linear(solution, steps) => format_solution(&solution, &steps),
+        Outcome::Text { steps, answer } => format!("{}{answer}", format_steps(&steps)),
     })
 }
 

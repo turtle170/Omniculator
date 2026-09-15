@@ -1,7 +1,9 @@
 use num_bigint::BigInt;
 use num_rational::BigRational;
 
+use crate::builtins::{callables, is_constant, is_function, CONSTANTS, FUNCTIONS};
 use crate::error::ParseError;
+use crate::suggest::suggest;
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum TokenKind {
@@ -46,6 +48,48 @@ pub fn describe(kind: &TokenKind) -> String {
         TokenKind::Eq => "'='".into(),
         TokenKind::Semi => "';'".into(),
     }
+}
+
+/// Split a run of letters into names: `xy` → `x`,`y`; `2pix` → `pi`,`x`;
+/// `x2y` → `x2`,`y` (trailing digits are subscripts). Known names, names with
+/// `_`, and likely typos of a function call (`sqr(`) are kept whole.
+fn split_identifier(name: &str, paren: bool) -> Vec<(usize, String)> {
+    let whole = || vec![(0, if name == "π" { "pi".to_string() } else { name.to_string() })];
+    if name == "π" || is_function(name) || is_constant(name) || name.contains('_') {
+        return whole();
+    }
+    if paren && suggest(name, &callables()).is_some() {
+        return whole();
+    }
+    // `sinx` is almost certainly a missing-parentheses mistake; keep it whole
+    // so the error can suggest `sin`.
+    if FUNCTIONS.iter().any(|f| f.len() >= 3 && name.starts_with(f)) {
+        return whole();
+    }
+    let mut out = Vec::new();
+    let mut pos = 0;
+    while pos < name.len() {
+        let rest = &name[pos..];
+        if paren && is_function(rest) {
+            out.push((pos, rest.to_string()));
+            break;
+        }
+        if rest.starts_with('π') {
+            out.push((pos, "pi".to_string()));
+            pos += 'π'.len_utf8();
+            continue;
+        }
+        if let Some(c) = CONSTANTS.iter().filter(|c| rest.starts_with(*c)).max_by_key(|c| c.len()) {
+            out.push((pos, c.to_string()));
+            pos += c.len();
+            continue;
+        }
+        let first = rest.chars().next().expect("non-empty").len_utf8();
+        let digits: usize = rest[first..].chars().take_while(char::is_ascii_digit).count();
+        out.push((pos, rest[..first + digits].to_string()));
+        pos += first + digits;
+    }
+    out
 }
 
 pub fn tokenize(input: &str) -> Result<Vec<Token>, ParseError> {
@@ -115,7 +159,7 @@ pub fn tokenize(input: &str) -> Result<Vec<Token>, ParseError> {
         }
 
         if c.is_alphabetic() || c == '_' {
-            let start = i;
+            let start = offset(i);
             let mut name = String::new();
             while let Some(&(_, c)) = chars.get(i) {
                 if !(c.is_alphanumeric() || c == '_') {
@@ -124,10 +168,12 @@ pub fn tokenize(input: &str) -> Result<Vec<Token>, ParseError> {
                 name.push(c);
                 i += 1;
             }
-            if name == "π" {
-                name = "pi".into();
+            let paren = chars[i..].iter().find(|&&(_, c)| !c.is_whitespace()).is_some_and(|&(_, c)| c == '(');
+            for (at, seg) in split_identifier(&name, paren) {
+                let s = start + at;
+                let len = if seg == "pi" && name[at..].starts_with('π') { 'π'.len_utf8() } else { seg.len() };
+                tokens.push(Token { kind: TokenKind::Ident(seg), start: s, end: s + len });
             }
-            tokens.push(Token { kind: TokenKind::Ident(name), start: offset(start), end: offset(i) });
             continue;
         }
 

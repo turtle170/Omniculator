@@ -7,7 +7,7 @@ use num_rational::BigRational;
 use num_traits::{One, Signed, Zero};
 
 use crate::ast::Expr;
-use crate::builtins::{CONSTANTS, FUNCTIONS};
+use crate::builtins::{is_command, CONSTANTS, FUNCTIONS};
 use crate::error::{EvalError, NameKind};
 use crate::suggest::suggest;
 use crate::value::{rat_ipow, ratio_to_f64, Value};
@@ -76,8 +76,11 @@ fn arity(name: &str, args: &[Value], allowed: &[usize]) -> Result<(), EvalError>
     Err(EvalError::Arity { name: name.to_string(), expected, got: args.len() })
 }
 
-fn call(name: &str, args: &[Value]) -> Result<Value, EvalError> {
+pub(crate) fn call(name: &str, args: &[Value]) -> Result<Value, EvalError> {
     match name {
+        c if is_command(c) => Err(EvalError::Domain(format!(
+            "{c}() must be used on its own, e.g. {c}(x^2, x)"
+        ))),
         "sqrt" => {
             arity(name, args, &[1])?;
             args[0].pow(&Value::rat(1, 2))

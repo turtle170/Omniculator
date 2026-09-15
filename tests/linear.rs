@@ -89,17 +89,25 @@ fn solve_i() -> Value {
     omniculator::calculate("i").unwrap()
 }
 
+fn text(input: &str) -> String {
+    match run(input) {
+        Ok(Outcome::Text { answer, .. }) => answer,
+        o => panic!("{input}: expected a text answer, got {o:?}"),
+    }
+}
+
 #[test]
-fn rejects_nonlinear() {
-    assert!(error("x*y=6").contains("not linear"));
-    assert!(error("x^2=4").contains("not linear"));
-    assert!(error("sin(x)=0").contains("not linear"));
-    assert!(error("x/y=1").contains("not linear"));
+fn nonlinear_goes_to_polynomial_solver() {
+    assert_eq!(text("x^2=4"), "x = -2\nx = 2");
+    assert!(text("x*y=6").starts_with("Infinitely many"));
+    assert!(error("sin(x)=0").contains("isn't a polynomial equation"));
 }
 
 #[test]
 fn equation_parse_errors() {
-    assert!(matches!(run("x+y"), Ok(Outcome::Value(_)) | Err(Error::Eval(_))));
+    assert!(matches!(run("x+y"), Ok(Outcome::Text { .. })));
+    assert!(error("1/0 = x").contains("division by zero"));
+    let _ = Error::Eval;
     assert!(error("x=1=2").contains("only have one '='"));
     assert!(error("x+1; y=2").contains("expected '='"));
     assert!(error("=5").contains("left-hand side"));
