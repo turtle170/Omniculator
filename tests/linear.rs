@@ -100,7 +100,8 @@ fn text(input: &str) -> String {
 fn nonlinear_goes_to_polynomial_solver() {
     assert_eq!(text("x^2=4"), "x = -2\nx = 2");
     assert!(text("x*y=6").ends_with("x = 6/y"));
-    assert!(error("sin(x)=0").contains("isn't a polynomial equation"));
+    assert!(text("sin(x)=0").contains("x ≈ 3.14159265359\n"));
+    assert!(error("sin(x)=y").contains("isn't a polynomial equation"));
 }
 
 #[test]

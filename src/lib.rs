@@ -10,6 +10,7 @@ pub mod factor;
 pub mod format;
 pub mod homotopy;
 pub mod mpoly;
+pub mod nonpoly;
 pub mod integrate;
 pub mod linear;
 pub mod parser;

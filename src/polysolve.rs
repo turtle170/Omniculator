@@ -98,8 +98,12 @@ pub fn solve_equations(equations: Vec<Equation>) -> Result<Outcome, Error> {
     }];
     for p in &polys {
         if !is_polynomial(p) || p.terms.keys().any(|m| m.keys().any(|a| !matches!(a, Atom::Var(_)))) {
+            if params.is_empty() && polys.len() == unknowns.len() {
+                return Ok(non_polynomial(&polys, &unknowns, steps));
+            }
             return Err(SolveError::Unsupported(format!(
-                "'{p} = 0' isn't a polynomial equation; only polynomial equations can be solved exactly"
+                "'{p} = 0' isn't a polynomial equation; only polynomial equations can be solved exactly, \
+                 and non-polynomial ones numerically only when there are as many equations as unknowns"
             ))
             .into());
         }
@@ -669,6 +673,11 @@ fn rational_approx(v: f64, max_den: i64) -> Option<Q> {
 
 /// Numeric solution; recognized as exact if it's rational and checks out exactly.
 fn to_solution(x: &[Complex64], vars: &[String], mp: &[MPoly]) -> Solution {
+    // Round away float noise such as 1e-32 next to much larger values.
+    let scale = x.iter().map(|z| z.norm()).fold(1.0, f64::max);
+    let clean = |v: f64| if v.abs() < 1e-12 * scale { 0.0 } else { v };
+    let x: Vec<Complex64> = x.iter().map(|z| Complex64::new(clean(z.re), clean(z.im))).collect();
+    let x = &x[..];
     let rational: Option<Vec<Q>> = x
         .iter()
         .map(|z| if z.im.abs() < 1e-8 * (1.0 + z.re.abs()) { rational_approx(z.re, 10_000) } else { None })
@@ -679,6 +688,29 @@ fn to_solution(x: &[Complex64], vars: &[String], mp: &[MPoly]) -> Solution {
         }
     }
     vars.iter().cloned().zip(x.iter().map(|z| Root::numeric(*z))).collect()
+}
+
+fn non_polynomial(polys: &[Sym], vars: &[String], mut steps: Vec<Step>) -> Outcome {
+    let sols = crate::nonpoly::solve_real(polys, vars);
+    steps.push(Step {
+        description: "Not polynomial, so no exact method applies; search for real solutions with -10 ≤ each \
+                      unknown ≤ 10 using Newton's method from many starting points in parallel (this may miss solutions)"
+            .into(),
+        snapshot: vec![format!("{} real solutions found", sols.len())],
+    });
+    let answer = if sols.is_empty() {
+        "No real solution found numerically (there may still be one outside the searched region).".to_string()
+    } else {
+        sols.iter()
+            .map(|s| {
+                let body: Vec<String> =
+                    vars.iter().zip(s).map(|(n, &v)| format!("{n} ≈ {}", fmt_c64(Complex64::new(v, 0.0)))).collect();
+                body.join(", ")
+            })
+            .collect::<Vec<_>>()
+            .join("\n")
+    };
+    Outcome::Text { steps, answer }
 }
 
 fn numeric(mp: &[MPoly], vars: &[String], mut steps: Vec<Step>, dens: &[Sym]) -> Result<Outcome, Error> {

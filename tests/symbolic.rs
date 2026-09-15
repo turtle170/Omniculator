@@ -38,6 +38,15 @@ fn parameters_and_large_systems() {
 }
 
 #[test]
+fn non_polynomial_systems() {
+    let a = answer("x^2 + sin(y) = 1; y^2 + cos(x) = 2");
+    assert_eq!(a.lines().count(), 4, "{a}");
+    assert!(answer("x^(3/2) + y^2 = 4; y^(3/2) + z^2 = 5; z^(3/2) + x^2 = 6").contains("x ≈ 1.83505623583"));
+    let five = answer("x + 2y + 2z + 2w + 2v = 1; x^2 + 2y^2 + 2z^2 + 2w^2 + 2v^2 = x; 2xy + 2yz + 2zw + 2wv = y; 2xz + 2yw + 2zv + y^2 = z; 2xw + 2yv + 2yz = w");
+    assert!(!five.contains("e-"), "{five}");
+}
+
+#[test]
 fn quadratics_and_polynomials() {
     assert_eq!(answer("x^2 - 5x + 6 = 0"), "x = 2\nx = 3");
     assert!(answer("x^2 = 2").contains("x = sqrt(2)"));
