@@ -53,6 +53,16 @@ fn stress_regressions() {
     assert_eq!(answer("simplify(sin(x)^2 + cos(x)^2)"), "1");
     assert_eq!(answer("integrate(1/x, x, 1, e)"), "∫ from 1 to e of 1/x dx = 1");
     assert_eq!(answer("sqrt(x) = 3"), "x = 9");
+    assert_eq!(answer("integrate(ln(x)/x, x)"), "∫ ln(x)/x dx = ln(x)^2/2 + C");
+    assert!(answer("integrate(sin(x)cos(x), x)").ends_with("+ C"));
+    assert!(answer("integrate(1/sqrt(1-x^2), x)").ends_with("= asin(x) + C"));
+    assert_eq!(answer("cot(pi/4)"), "1");
+    assert_eq!(answer("simplify(sec(x)cos(x))"), "1");
+    assert!(answer("hello(3)").contains("unknown function 'hello'"));
+    assert!(answer("acos(1/2)").starts_with("pi/3"));
+    assert!(answer("atan(1)").starts_with("pi/4"));
+    assert_eq!(answer("simplify(sqrt(x^2))"), "abs(x)");
+    assert_eq!(answer("grad(5)"), "f is constant, so ∇f = 0");
 }
 
 #[test]

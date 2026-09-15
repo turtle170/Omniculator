@@ -104,6 +104,9 @@ impl Integrator {
         let (m, _) = p.single().unwrap();
         let factors: Vec<(Atom, Q)> = m.iter().map(|(a, e)| (a.clone(), e.clone())).collect();
         if factors.len() == 1 {
+            if let Some(r) = self.arcsin(&factors[0].0, &factors[0].1)? {
+                return Ok(r);
+            }
             if let Some(r) = self.table(&factors[0].0, &factors[0].1)? {
                 return Ok(r);
             }
@@ -121,6 +124,27 @@ impl Integrator {
             return Ok(r);
         }
         Err(format!("no rule applies to {p}"))
+    }
+
+    /// ∫ (a − b·x²)^(−1/2) dx = asin(x·√(b/a)) / √b for a, b > 0.
+    fn arcsin(&mut self, at: &Atom, e: &Q) -> Result<Option<Sym>, String> {
+        let x = self.x.clone();
+        let Atom::Group(g) = at else { return Ok(None) };
+        if *e != -half() {
+            return Ok(None);
+        }
+        let Some(c) = coeffs_in(g, &x) else { return Ok(None) };
+        if c.len() != 3 || !c[1].is_zero() {
+            return Ok(None);
+        }
+        let (Some(a), Some(b)) = (c[0].as_constant(), c[2].as_constant().map(|v| -v)) else { return Ok(None) };
+        if !a.is_positive() || !b.is_positive() {
+            return Ok(None);
+        }
+        let k = rational_power(&(&b / &a), &half());
+        let r = ev(f1("asin", Sym::var(&x).mul(&k))?.div(&rational_power(&b, &half())))?;
+        self.note("Standard integral ∫ 1/√(a − b·x²) dx = asin(x·√(b/a))/√b".into(), format!("= {r}"));
+        Ok(Some(r))
     }
 
     /// Standard forms a^e with a linear inner argument.
@@ -290,7 +314,11 @@ impl Integrator {
         let mut candidates: Vec<Sym> = Vec::new();
         for a in m.keys() {
             match a {
-                Atom::Func(_, args) => candidates.push(args[0].clone()),
+                Atom::Func(_, args) => {
+                    candidates.push(args[0].clone());
+                    // The function itself: ∫ sin·cos (u = sin), ∫ ln(x)/x (u = ln x).
+                    candidates.push(Sym::atom(a.clone()));
+                }
                 Atom::Group(b) => candidates.push((**b).clone()),
                 Atom::Pow(b, y) => {
                     candidates.push((**y).clone());

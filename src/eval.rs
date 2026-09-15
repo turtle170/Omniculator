@@ -100,6 +100,20 @@ pub(crate) fn call(name: &str, args: &[Value]) -> Result<Value, EvalError> {
             arity(name, args, &[1])?;
             args[0].abs()
         }
+        "sec" | "csc" | "cot" => {
+            arity(name, args, &[1])?;
+            let (s, c) = (transcendental("sin", &args[0]), transcendental("cos", &args[0]));
+            let (num, den) = match name {
+                "sec" => (Value::int(1), c),
+                "csc" => (Value::int(1), s),
+                _ => (c, s),
+            };
+            let d = den.to_c64();
+            if d.norm() < 1e-12 {
+                return Err(EvalError::Domain(format!("{name} is undefined at this angle")));
+            }
+            Ok(Value::Complex(num.to_c64() / d).normalize())
+        }
         "sin" | "cos" | "tan" | "asin" | "acos" | "atan" | "sinh" | "cosh" | "tanh" | "exp" => {
             arity(name, args, &[1])?;
             if name == "tan" && args[0].as_real_f64().is_some_and(|x| x.cos().abs() < 1e-12 * (1.0 + x.abs())) {

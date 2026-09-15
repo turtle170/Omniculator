@@ -26,7 +26,11 @@ pub fn with_approx(s: &Sym) -> String {
     if s.vars().is_empty() && s.as_constant().is_none() {
         if let Ok(v) = s.eval(&Default::default()) {
             let approx = format_result(&v);
-            let approx = approx.strip_prefix("≈ ").unwrap_or(&approx).to_string();
+            // Keep only the final decimal (exact complex values format as "a ≈ b").
+            let approx = approx.rsplit("≈ ").next().unwrap_or(&approx).trim().to_string();
+            if approx == s.to_string() {
+                return approx;
+            }
             return format!("{s} ≈ {approx}");
         }
     }
@@ -144,6 +148,9 @@ pub fn run_command(name: &str, args: &[Expr]) -> Result<Outcome, Error> {
             }
             let f = sym(0)?;
             let vars = var_list(&args[1..], std::slice::from_ref(&f), "grad")?;
+            if vars.is_empty() {
+                return Ok(text(vec![], "f is constant, so ∇f = 0".into()));
+            }
             let g = gradient(&f, &vars)?;
             let lines: Vec<String> = vars.iter().zip(&g).map(|(v, d)| format!("∂f/∂{v} = {d}")).collect();
             let vec = g.iter().map(ToString::to_string).collect::<Vec<_>>().join(", ");

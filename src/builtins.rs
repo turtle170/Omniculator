@@ -3,7 +3,7 @@
 
 pub const FUNCTIONS: &[&str] = &[
     "sqrt", "cbrt", "root", "abs", "sin", "cos", "tan", "asin", "acos", "atan", "sinh", "cosh",
-    "tanh", "ln", "log", "log2", "exp", "floor", "ceil", "round", "re", "im", "conj", "arg",
+    "tanh", "sec", "csc", "cot", "ln", "log", "log2", "exp", "floor", "ceil", "round", "re", "im", "conj", "arg",
 ];
 
 /// Symbolic commands; only valid as the whole input, e.g. `diff(x^2, x)`.

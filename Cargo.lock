@@ -89,7 +89,7 @@ dependencies = [
 
 [[package]]
 name = "omniculator"
-version = "0.5.2"
+version = "0.5.3"
 dependencies = [
  "num-bigint",
  "num-complex",

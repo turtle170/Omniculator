@@ -66,6 +66,15 @@ fn split_identifier(name: &str, paren: bool) -> Vec<(usize, String)> {
     if FUNCTIONS.iter().any(|f| f.len() >= 3 && name.starts_with(f)) {
         return whole();
     }
+    // `hello(3)`: a long unknown name directly before '(' is meant as a call,
+    // not h·e·l·l·o·3 — unless it ends in a real function, like `xsin(x)`.
+    if paren
+        && name.chars().count() >= 4
+        && name.chars().all(|c| c.is_ascii_alphabetic())
+        && !(1..name.len()).any(|k| is_function(&name[k..]))
+    {
+        return whole();
+    }
     let mut out = Vec::new();
     let mut pos = 0;
     while pos < name.len() {

@@ -562,7 +562,25 @@ pub fn func(name: &str, args: Vec<Sym>) -> Result<Sym, EvalError> {
         return Err(EvalError::Arity { name: name.to_string(), expected, got: args.len() });
     }
     match name {
-        "sqrt" => return args[0].pow_q(&half()),
+        "sqrt" => {
+            // sqrt(u^2) = abs(u) for a single variable or group u.
+            if let Some((m, c)) = args[0].single() {
+                if c.is_one() && m.len() == 1 {
+                    let (a, e) = m.iter().next().expect("one atom");
+                    if *e == q(2) {
+                        match a {
+                            Atom::Var(_) => return func("abs", vec![Sym::atom(a.clone())]),
+                            Atom::Group(b) => return func("abs", vec![(**b).clone()]),
+                            _ => {}
+                        }
+                    }
+                }
+            }
+            return args[0].pow_q(&half());
+        }
+        "sec" => return Sym::int(1).div(&func("cos", args.clone())?),
+        "csc" => return Sym::int(1).div(&func("sin", args.clone())?),
+        "cot" => return func("cos", args.clone())?.div(&func("sin", args.clone())?),
         "cbrt" => return args[0].pow_q(&Q::new(1.into(), 3.into())),
         "root" => {
             let n = args[1].as_constant().filter(|n| !n.is_zero()).ok_or_else(|| {
@@ -610,7 +628,38 @@ pub fn func(name: &str, args: Vec<Sym>) -> Result<Sym, EvalError> {
     if let Some(v) = trig_special(name, &args[0]) {
         return v;
     }
+    if let Some(v) = inverse_trig_special(name, &args[0]) {
+        return Ok(v);
+    }
     Ok(Sym::atom(Atom::Func(name.to_string(), args)))
+}
+
+/// Exact asin/acos/atan at the standard values (0, 1/2, sqrt(2)/2, ...).
+fn inverse_trig_special(name: &str, arg: &Sym) -> Option<Sym> {
+    if !matches!(name, "asin" | "acos" | "atan") {
+        return None;
+    }
+    let (r2, r3) = (rational_power(&q(2), &half()), rational_power(&q(3), &half()));
+    let table: Vec<(Sym, i64)> = if name == "atan" {
+        vec![(Sym::zero(), 0), (Sym::int(1), 45), (r3.clone(), 60), (r3.scale(&Q::new(1.into(), 3.into())), 30)]
+    } else {
+        vec![
+            (Sym::zero(), 0),
+            (Sym::constant(half()), 30),
+            (r2.scale(&half()), 45),
+            (r3.scale(&half()), 60),
+            (Sym::int(1), 90),
+        ]
+    };
+    for (v, d) in table {
+        for (sign, val) in [(1, v.clone()), (-1, v.neg())] {
+            if *arg == val {
+                let deg = if name == "acos" { 90 - sign * d } else { sign * d };
+                return Some(Sym::atom(Atom::Const(Konst::Pi)).scale(&Q::new(deg.into(), 180.into())));
+            }
+        }
+    }
+    None
 }
 
 fn ln_simplify(x: &Sym) -> Option<Sym> {
